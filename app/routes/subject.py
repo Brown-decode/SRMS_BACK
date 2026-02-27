@@ -5,7 +5,7 @@ from app.models.subject import Subject
 from app.schemas.subject import SubjectCreateRequest
 
 
-subject_router = APIRouter(prefix="/subject")
+subject_router = APIRouter(prefix="/subject", tags=["subject"])
 
 @subject_router.post("/all")
 def create_subject(subject: SubjectCreateRequest, db: Session = Depends(get_db)):

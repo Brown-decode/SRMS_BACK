@@ -4,7 +4,7 @@ from app.schemas.class_subject import ClassSubjectCreateRequest
 from sqlalchemy.orm import Session
 from app.db.session import get_db
 
-class_subject_router = APIRouter(prefix="/class_subject")
+class_subject_router = APIRouter(prefix="/class_subject", tags=["class_subject"])
 
 @class_subject_router.post("/create")
 def create_class_subject(class_subject: ClassSubjectCreateRequest, db: Session = Depends(get_db)):

@@ -1,6 +1,6 @@
 from pydantic import BaseModel
-from ap.models.class_model import Class
-
+from app.models.class_model import Class
+from app.models.class_model import ClassName, Cycle, Stream
 class ClassCreateRequest(BaseModel):
     name: ClassName
     level: Cycle

@@ -7,7 +7,7 @@ from fastapi import Depends, HTTPException
 from app.core.security import create_access_token
 from app.models.user import User
 
-auth_router = APIRouter(prefix="/auth")
+auth_router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 

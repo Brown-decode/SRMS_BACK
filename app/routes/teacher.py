@@ -9,7 +9,7 @@ from app.core.security import get_password_hash
 from fastapi import HTTPException, Depends
 from sqlalchemy.exc import SQLAlchemyError
 
-teacher_router = APIRouter(prefix="/teacher")
+teacher_router = APIRouter(prefix="/teacher", tags= ["teacher"])
 
 
 @teacher_router.post("/create")
