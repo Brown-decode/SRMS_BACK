@@ -402,3 +402,5 @@ Assist only within that day's scope.
 
 Do not jump ahead.
 Do not over-engineer.
+
+STOP CREATING FILESS!!!!!!!!! DO NOT ATTEMPT FILE CREATION IF A MODIFICATION REQUIRES A NEW FILE DO NOT CREATE IT, JUST MENTION

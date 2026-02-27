@@ -1,12 +1,11 @@
 from pydantic import BaseModel
-
+from app.models.user import UserRole
 
 class UserCreate(BaseModel):
     full_name: str
-    matricule: str
-    class_id: int
-    date_of_birth: str
-    gender: str
+    loginid: str
+    
+    
 
 
 class LoginRequest(BaseModel):
