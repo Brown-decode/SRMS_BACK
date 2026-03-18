@@ -1,21 +1,26 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.db.session import get_db
-from app.schemas.assessment import AssessmentCreateRequest
+from app.schemas.assessment import (
+    AssessmentCreateRequest,
+    AssessmentCreateResponse,
+    AssessmentScoresResponse,
+)
 from app.models.assessment import Assessment
 from app.core.dependencies import get_current_user, require_admin, require_teacher
 from app.models.user import User, UserRole
 from sqlalchemy.exc import SQLAlchemyError
 from app.models.teacher import Teacher
 from app.models.class_subject import ClassSubject
-from app.schemas.score import ScoreBulkCreate
+from app.schemas.score import ScoreBulkCreate, ScoreBulkCreateResponse
 from app.models.score import Score
 from app.models.student import Student
+
 
 assessment_router = APIRouter(prefix="/assessment", tags=["assessment"])
 
 
-@assessment_router.post("/")
+@assessment_router.post("/", response_model=AssessmentCreateResponse, status_code=201)
 async def create_assessment(
     assessment: AssessmentCreateRequest,
     current_user: User = Depends(require_teacher),
@@ -45,11 +50,11 @@ async def create_assessment(
         raise HTTPException(status_code=500, detail="Failed to create assessment")
 
 
-@assessment_router.get("/")
+@assessment_router.get("/", response_model=list[AssessmentCreateResponse])
 async def get_assessments(
     current_user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ):
-    if current_user.role == UserRole.ADMIN:
+    if current_user.role == UserRole.ADMIN or current_user.role == UserRole.SUPERUSER:
         assessments = db.query(Assessment).all()
         return assessments
     if current_user.role == UserRole.TEACHER:
@@ -61,13 +66,13 @@ async def get_assessments(
     return assessments
 
 
-@assessment_router.get("/{assessment_id}")
+@assessment_router.get("/{assessment_id}", response_model=AssessmentCreateResponse)
 async def get_assessment(
     assessment_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    if current_user.role == UserRole.ADMIN:
+    if current_user.role == UserRole.ADMIN or current_user.role == UserRole.SUPERUSER:
         assessment = db.query(Assessment).filter(Assessment.id == assessment_id).first()
         if not assessment:
             raise HTTPException(status_code=404, detail="Assessment not found")
@@ -92,7 +97,7 @@ async def delete_assessment(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    if current_user.role == UserRole.ADMIN:
+    if current_user.role == UserRole.ADMIN or current_user.role == UserRole.SUPERUSER:
         assessment = db.query(Assessment).filter(Assessment.id == assessment_id).first()
         if not assessment:
             raise HTTPException(status_code=404, detail="Assessment not found")
@@ -123,7 +128,7 @@ async def delete_assessment(
             raise HTTPException(status_code=500, detail="Failed to delete assessment")
 
 
-@assessment_router.put("/{assessment_id}")
+@assessment_router.put("/{assessment_id}", response_model=AssessmentCreateResponse)
 async def update_assessment(
     assessment_id: int,
     assessment: AssessmentCreateRequest,
@@ -169,7 +174,9 @@ async def update_assessment(
         raise HTTPException(status_code=500, detail="Failed to update assessment")
 
 
-@assessment_router.post("/{assessment_id}/scores")
+@assessment_router.post(
+    "/{assessment_id}/scores", response_model=ScoreBulkCreateResponse, status_code=201
+)
 async def create_scores(
     assessment_id: int,
     payload: ScoreBulkCreate,

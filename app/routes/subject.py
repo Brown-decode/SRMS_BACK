@@ -2,14 +2,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.db.session import get_db
 from sqlalchemy.orm import Session
 from app.models.subject import Subject
-from app.schemas.subject import SubjectCreateRequest
+from app.schemas.subject import SubjectCreateRequest, SubjectCreateResponse
 from app.core.dependencies import get_current_user, require_admin
 from app.models.user import User, UserRole
 from sqlalchemy.exc import SQLAlchemyError
 
 subject_router = APIRouter(prefix="/subjects", tags=["subject"])
 
-@subject_router.post("/")
+@subject_router.post("/", response_model= SubjectCreateResponse, status_code=201)
 async def create_subject(subject: SubjectCreateRequest,current_user: User = Depends(get_current_user),db: Session = Depends(get_db)):
     if current_user.role != UserRole.ADMIN:
         raise HTTPException(status_code=403, detail="Only admin can create a subject")
@@ -28,12 +28,12 @@ async def create_subject(subject: SubjectCreateRequest,current_user: User = Depe
         raise HTTPException(status_code=500, detail="Failed to create subject")
    
 
-@subject_router.get("/")
+@subject_router.get("/", response_model= list[SubjectCreateResponse])
 async def get_subjects(current_user: User = Depends(require_admin),db: Session = Depends(get_db)):    
     subjects = db.query(Subject).all()
     return subjects
 
-@subject_router.get("/{subject_id}")
+@subject_router.get("/{subject_id}", response_model= SubjectCreateResponse)
 async def get_subject(subject_id: int, current_user: User = Depends(require_admin),db: Session = Depends(get_db)):
     subject = db.query(Subject).filter(Subject.id == subject_id).first()
     if not subject:

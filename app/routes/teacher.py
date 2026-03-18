@@ -9,6 +9,7 @@ from fastapi import HTTPException, Depends
 from app.core.dependencies import get_current_user, require_teacher, require_admin
 from app.models.user import User
 from app.models.class_subject import ClassSubject
+from app.schemas.subject import SubjectCreateResponse
 from app.models.student import Student
 from app.models.class_model import Class
 from app.schemas.teacher import TeacherResponse
@@ -17,7 +18,7 @@ from sqlalchemy.exc import SQLAlchemyError
 teacher_router = APIRouter(prefix="/teachers", tags= ["teacher"])
 
 
-@teacher_router.post("/")
+@teacher_router.post("/", response_model= TeacherResponse, status_code=201)
 async def create_teacher(user: UserCreate, current_user: User = Depends(require_admin),db: Session = Depends(get_db)):
     user_check = db.query(User).filter(User.loginid == user.loginid).first()
     if user_check:
@@ -41,24 +42,28 @@ async def create_teacher(user: UserCreate, current_user: User = Depends(require_
         db.refresh(new_user)
         db.refresh(new_teacher)
 
-        return {"user": new_user, "teacher": new_teacher}
+        return {**new_teacher.__dict__, "full_name": new_user.full_name}
     except Exception:
         db.rollback()
         raise
-@teacher_router.get("/")
+@teacher_router.get("/", response_model= list[TeacherResponse])
 async def get_teachers(current_user: User = Depends(require_admin), db: Session = Depends(get_db)):
     teachers = db.query(Teacher).all()
-    return teachers
+    to_return = []
+    
+    for teacher in teachers:
+        to_return.append({**teacher.__dict__, "full_name": teacher.user.full_name})
+        
+    return to_return
 
 @teacher_router.get("/{id}", response_model=TeacherResponse)
 async def get_teacher_by_id(id:int, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
     teacher = db.query(Teacher).filter(Teacher.id == id).first()
     if not teacher:
         raise HTTPException(status_code=404, detail="Teacher not found")
-    username = db.query(User).filter(User.id == teacher.user_id).first()
-    teacher_response = Teacher(id=teacher.id, user_id=teacher.user_id, username= username.full_name)
-    
+    teacher_response = {**teacher.__dict__, "full_name": teacher.user.full_name}
     return teacher_response
+
 @teacher_router.get("/me/class/{class_id}/subjects")
 async def get_my_subjects(class_id: int, current_user: User = Depends(require_teacher), db: Session = Depends(get_db)):
     teacher = current_user.teacher
@@ -70,7 +75,7 @@ async def get_my_subjects(class_id: int, current_user: User = Depends(require_te
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
                             detail="You have no subject assigned for this class.")
     return subjects
-@teacher_router.get("/me/subjects")
+@teacher_router.get("/me/subjects", response_model= list[SubjectCreateResponse])
 async def get_my_subjects(current_user: User = Depends(require_teacher), db: Session = Depends(get_db)):
     teacher = current_user.teacher
     subjects = [cs.subject for cs in teacher.class_subjects]    
@@ -79,12 +84,12 @@ async def get_my_subjects(current_user: User = Depends(require_teacher), db: Ses
                             detail="You have no subject assigned.")
     return subjects
 
-@teacher_router.get("/me")
+@teacher_router.get("/me", response_model=TeacherResponse)
 async def get_my_details(current_user: User = Depends(require_teacher), db: Session = Depends(get_db)):
     teacher = current_user.teacher
     if not teacher:
         raise HTTPException(status_code=404, detail="Teacher not found")
-    return teacher
+    return {**teacher.__dict__, "full_name": teacher.user.full_name}
 
 @teacher_router.delete("/{id}")
 async def delete_teacher(id: int, current_user: User = Depends(require_admin), db: Session = Depends(get_db)):

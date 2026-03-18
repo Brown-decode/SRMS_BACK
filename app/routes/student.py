@@ -2,7 +2,7 @@ from fastapi import APIRouter
 from app.db.session import get_db
 from sqlalchemy.orm import Session
 from app.schemas.user import UserCreate
-from app.schemas.student import StudentCreate, StudentResponse
+from app.schemas.student import StudentCreate, StudentResponse, StudentReportCard
 from app.models.student import Student
 from app.models.user import User, UserRole
 from app.core.security import get_password_hash
@@ -13,27 +13,31 @@ from app.models.class_subject import ClassSubject
 from app.models.class_model import Class
 from app.core.dependencies import require_admin, require_student
 from app.services.result_service import compute_class_results
+from app.schemas.class_schema import ClassCreateResponse
+
 
 student_router = APIRouter(prefix="/students", tags=["student"])
 
 
-@student_router.post("/")
+@student_router.post("/", response_model=StudentResponse, status_code=201)
 async def create_student(
-    user: UserCreate,
-    student: StudentCreate,
+    student_data: StudentCreate,  # Use a single schema for input
     current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
 
-    user_check = db.query(User).filter(User.loginid == user.loginid).first()
+    # Assuming matricule is the loginid
+    user_check = db.query(User).filter(User.loginid == student_data.matricule).first()
     if user_check:
         raise HTTPException(status_code=400, detail="Student already exists")
 
     try:
         new_user = User(
-            full_name=user.full_name,
-            loginid=user.loginid,
-            password_hash=get_password_hash(user.loginid),
+            full_name=student_data.full_name,
+            loginid=student_data.matricule,
+            password_hash=get_password_hash(
+                student_data.matricule
+            ),  # Default password is matricule
             role=UserRole.STUDENT,
         )
 
@@ -41,12 +45,12 @@ async def create_student(
         db.flush()
 
         new_student = Student(
-            full_name=user.full_name,
+            # full_name is now in the User model
             user_id=new_user.id,
-            matricule=new_user.loginid,
-            class_id=student.class_id,
-            date_of_birth=student.date_of_birth,
-            gender=student.gender,
+            matricule=student_data.matricule,
+            class_id=student_data.class_id,
+            date_of_birth=student_data.date_of_birth,
+            gender=student_data.gender,
         )
 
         db.add(new_student)
@@ -54,59 +58,44 @@ async def create_student(
         db.refresh(new_user)
         db.refresh(new_student)
 
-        return {"user": new_user, "student": new_student}
-    except Exception:
+        return {**new_student.__dict__, "full_name": new_user.full_name}
+    except Exception as e:
         db.rollback()
-        raise
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 
-@student_router.get("/")
+@student_router.get("/", response_model=list[StudentResponse])
 async def get_all_students(
     current_user: User = Depends(require_admin), db: Session = Depends(get_db)
 ):
     students = db.query(Student).all()
-    return students
+    to_return = []
+    for student in students:
+        to_return.append({**student.__dict__, "full_name": student.user.full_name})
+    return to_return
 
 
-@student_router.get("/{id}")
+@student_router.get("/{id}", response_model=StudentResponse)
 async def get_student_details(
     id: int, current_user: User = Depends(require_admin), db: Session = Depends(get_db)
 ):
     student = db.query(Student).filter(Student.id == id).first()
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
-    return student
+    return {**student.__dict__, "full_name": student.user.full_name}
 
 
-@student_router.get("/me")
+@student_router.get("/me", response_model=StudentResponse)
 async def get_my_details(
     current_user: User = Depends(require_student), db: Session = Depends(get_db)
 ):
     student = current_user.student
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
-    return student
+    return {**student.__dict__, "full_name": student.user.full_name}
 
 
-# @student_router.get("/me/subjects")
-# def get_my_subjects(
-#     current_user: User = Depends(require_student), db: Session = Depends(get_db)
-# ):
-#     student = db.query(Student).filter(Student.user_id == current_user.id).first()
-#     if not student:
-#         raise HTTPException(status_code=404, detail="Student not found")
-#     _class = db.query(Class).filter(Class.id == student.class_id).first()
-#     class_subjects = (
-#         db.query(ClassSubject).filter(ClassSubject.class_id == _class.id).all()
-#     )
-#     if not class_subjects:
-#         raise HTTPException(status_code=404, detail="No subjects found for this class")
-
-#     subjects = [cs.subject for cs in class_subjects]
-#     return subjects
-
-
-@student_router.get("/me/class")
+@student_router.get("/me/class", response_model=ClassCreateResponse)
 async def get_my_class(
     current_user: User = Depends(require_student), db: Session = Depends(get_db)
 ):
@@ -119,7 +108,7 @@ async def get_my_class(
     return _class
 
 
-@student_router.get("/me/results")
+@student_router.get("/me/results", response_model=StudentReportCard)
 async def get_my_results(
     term: int,
     current_user: User = Depends(require_student),

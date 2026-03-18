@@ -13,4 +13,9 @@ class ScoreBulkCreate(BaseModel):
     class Config:
         from_attribtes = True
         
-        
+class ScoreBulkCreateResponse(BaseModel):
+    message: str
+    count: int
+    
+    class Config:
+        from_attributes = True
