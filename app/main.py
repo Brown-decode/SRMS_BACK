@@ -6,7 +6,9 @@ from app.routes.assessment import assessment_router
 from app.routes.classes import class_router
 from app.routes.subject import subject_router
 from app.routes.teacher import teacher_router
+from app.routes.results import results_router
 from app.db.database import engine, Base
+from app import models
 
 
 app = FastAPI(title="School Results Management System", description="School Results Management System", version="0.0.1")
@@ -18,6 +20,7 @@ app.include_router(assessment_router)
 app.include_router(class_router)
 app.include_router(subject_router)
 app.include_router(teacher_router)
+app.include_router(results_router)
 
 
 @app.get("/")

@@ -4,7 +4,7 @@ from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 from app.schemas.user import TokenData
 from app.db.session import get_db
-from app.models.user import User
+from app.models.user import User, UserRole
 
 from app.core.config import settings
 
@@ -37,3 +37,19 @@ async def get_current_user(
         raise credentials_exception
 
     return user
+
+def require_teacher(current_user: User = Depends(get_current_user)):
+    if current_user.role != UserRole.TEACHER:
+        raise HTTPException(status_code=403, detail="Only teachers can perform this operation")
+    return current_user
+
+def require_admin(current_user: User = Depends(get_current_user)):
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Only admins can perform this operation")
+    return current_user
+
+def require_student(current_user: User = Depends(get_current_user)):
+    if current_user.role != UserRole.STUDENT:
+        raise HTTPException(status_code=403, detail="Only students can perform this operation")
+    return current_user
+    

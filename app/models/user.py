@@ -1,6 +1,7 @@
 from app.db.database import Base
 from sqlalchemy import Column, Integer, String, Boolean, Enum as SqlAlchemyEnum
 from enum import Enum
+from sqlalchemy.orm import relationship
 
 class UserRole(str, Enum):
     ADMIN = "ADMIN"
@@ -17,5 +18,10 @@ class User(Base):
     role = Column(SqlAlchemyEnum(UserRole), nullable = False)
     is_active = Column(Boolean, default=True)
     
-    class config:
-        from_attributes = True
+    student = relationship("Student", back_populates="user")
+    teacher = relationship("Teacher", back_populates="user")
+    
+        
+    
+    
+    

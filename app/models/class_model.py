@@ -1,6 +1,7 @@
 from sqlalchemy import Column, Integer, String, Enum as SqlAlchemyEnum
 from app.db.database import Base
 from enum import Enum
+from sqlalchemy.orm import relationship
 
 class ClassName(Enum): 
     FORM_1 = "Form 1"
@@ -27,3 +28,6 @@ class Class(Base):
     name = Column(SqlAlchemyEnum(ClassName), unique=True, index=True)
     level = Column(SqlAlchemyEnum(Cycle), index=True)
     stream = Column(SqlAlchemyEnum(Stream), index=True)
+    
+    students = relationship("Student", back_populates="class_")
+    class_subjects = relationship("ClassSubject", back_populates="class_")
