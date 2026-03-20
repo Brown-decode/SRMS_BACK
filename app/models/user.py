@@ -19,8 +19,8 @@ class User(Base):
     role = Column(SqlAlchemyEnum(UserRole), nullable = False)
     is_active = Column(Boolean, default=True)
     
-    student = relationship("Student", back_populates="user")
-    teacher = relationship("Teacher", back_populates="user")
+    student = relationship("Student", back_populates="user", uselist=False)
+    teacher = relationship("Teacher", back_populates="user", uselist=False)
     
         
     

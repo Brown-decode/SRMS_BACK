@@ -25,6 +25,9 @@ class AssessmentBase(BaseModel):
     sequence: int
     max_score: float
     date: date
+    weight_percentage: float
+    
+
 
 class AssessmentCreateRequest(AssessmentBase):
     pass

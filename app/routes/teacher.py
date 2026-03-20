@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from app.db.session import get_db
 from sqlalchemy.orm import Session
 from app.models.teacher import Teacher
 from app.schemas.user import UserCreate
+from app.schemas.teacher import TeacherResponse, TeacherUpdate
 from app.models.user import User, UserRole
 from app.core.security import get_password_hash
 from fastapi import HTTPException, Depends
@@ -12,14 +13,22 @@ from app.models.class_subject import ClassSubject
 from app.schemas.subject import SubjectCreateResponse
 from app.models.student import Student
 from app.models.class_model import Class
-from app.schemas.teacher import TeacherResponse
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import joinedload
+from typing import Optional
+from fastapi.responses import StreamingResponse
+import csv
+import io
 
-teacher_router = APIRouter(prefix="/teachers", tags= ["teacher"])
+teacher_router = APIRouter(prefix="/teachers", tags=["teacher"])
 
 
-@teacher_router.post("/", response_model= TeacherResponse, status_code=201)
-async def create_teacher(user: UserCreate, current_user: User = Depends(require_admin),db: Session = Depends(get_db)):
+@teacher_router.post("/", response_model=TeacherResponse, status_code=201)
+async def create_teacher(
+    user: UserCreate,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
     user_check = db.query(User).filter(User.loginid == user.loginid).first()
     if user_check:
         raise HTTPException(status_code=400, detail="Teacher already exists")
@@ -42,60 +51,181 @@ async def create_teacher(user: UserCreate, current_user: User = Depends(require_
         db.refresh(new_user)
         db.refresh(new_teacher)
 
-        return {**new_teacher.__dict__, "full_name": new_user.full_name}
+        return {
+            "id": new_teacher.id,
+            "user_id": new_teacher.user_id,
+            "loginid": new_user.loginid,
+            "full_name": new_user.full_name,
+        }
     except Exception:
         db.rollback()
         raise
-@teacher_router.get("/", response_model= list[TeacherResponse])
-async def get_teachers(current_user: User = Depends(require_admin), db: Session = Depends(get_db)):
-    teachers = db.query(Teacher).all()
+
+
+@teacher_router.get("/", response_model=list[TeacherResponse])
+async def get_teachers(
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+    search: Optional[str] = Query(None, description="Search by name or email"),
+    page: int = Query(1, ge=1, description="Page number"),
+    limit: int = Query(25, ge=1, le=100, description="Items per page"),
+):
+    # Build query with filters
+    query = db.query(Teacher).options(joinedload(Teacher.user))
+
+    if search:
+        query = query.filter(
+            (Teacher.user.has(User.loginid.ilike(f"%{search}%")))
+            | (Teacher.user.has(User.full_name.ilike(f"%{search}%")))
+        )
+
+    # Get total count for pagination
+    total = query.count()
+
+    # Apply pagination
+    offset = (page - 1) * limit
+    teachers = query.offset(offset).limit(limit).all()
+
     to_return = []
-    
+
     for teacher in teachers:
-        to_return.append({**teacher.__dict__, "full_name": teacher.user.full_name})
-        
+        to_return.append(
+            {
+                "id": teacher.id,
+                "user_id": teacher.user_id,
+                "loginid": teacher.user.loginid,
+                "full_name": teacher.user.full_name,
+            }
+        )
+
     return to_return
 
+
+@teacher_router.get("/me", response_model=TeacherResponse)
+async def get_my_details(
+    current_user: User = Depends(require_teacher), db: Session = Depends(get_db)
+):
+    teacher = current_user.teacher
+    if not teacher:
+        raise HTTPException(status_code=404, detail="Teacher not found")
+    return {
+        "id": teacher.id,
+        "user_id": teacher.user_id,
+        "loginid": teacher.user.loginid,
+        "full_name": teacher.user.full_name,
+    }
+
+
 @teacher_router.get("/{id}", response_model=TeacherResponse)
-async def get_teacher_by_id(id:int, db: Session = Depends(get_db), current_user: User = Depends(require_admin)):
+async def get_teacher_by_id(
+    id: int, db: Session = Depends(get_db), current_user: User = Depends(require_admin)
+):
     teacher = db.query(Teacher).filter(Teacher.id == id).first()
     if not teacher:
         raise HTTPException(status_code=404, detail="Teacher not found")
-    teacher_response = {**teacher.__dict__, "full_name": teacher.user.full_name}
+    teacher_response = {
+        "id": teacher.id,
+        "loginid": teacher.user.loginid,
+        "user_id": teacher.user_id,
+        "full_name": teacher.user.full_name,
+    }
     return teacher_response
 
+
 @teacher_router.get("/me/class/{class_id}/subjects")
-async def get_my_subjects(class_id: int, current_user: User = Depends(require_teacher), db: Session = Depends(get_db)):
+async def get_my_subjects(
+    class_id: int,
+    current_user: User = Depends(require_teacher),
+    db: Session = Depends(get_db),
+):
     teacher = current_user.teacher
     _class = db.query(Class).filter(Class.id == class_id).first()
     if not _class:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Class not found.")
-    subjects = [cs.subject for cs in teacher.class_subjects if cs.class_id == class_id]    
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Class not found."
+        )
+    subjects = [cs.subject for cs in teacher.class_subjects if cs.class_id == class_id]
     if not subjects:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
-                            detail="You have no subject assigned for this class.")
-    return subjects
-@teacher_router.get("/me/subjects", response_model= list[SubjectCreateResponse])
-async def get_my_subjects(current_user: User = Depends(require_teacher), db: Session = Depends(get_db)):
-    teacher = current_user.teacher
-    subjects = [cs.subject for cs in teacher.class_subjects]    
-    if not subjects:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
-                            detail="You have no subject assigned.")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="You have no subject assigned for this class.",
+        )
     return subjects
 
-@teacher_router.get("/me", response_model=TeacherResponse)
-async def get_my_details(current_user: User = Depends(require_teacher), db: Session = Depends(get_db)):
+
+@teacher_router.get("/me/subjects", response_model=list[SubjectCreateResponse])
+async def get_my_subjects(
+    current_user: User = Depends(require_teacher), db: Session = Depends(get_db)
+):
     teacher = current_user.teacher
+    subjects = [cs.subject for cs in teacher.class_subjects]
+    if not subjects:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="You have no subject assigned.",
+        )
+    return subjects
+
+
+@teacher_router.put("/{id}", response_model=TeacherResponse)
+async def update_teacher(
+    id: int,
+    teacher_data: TeacherUpdate,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    teacher = (
+        db.query(Teacher)
+        .options(joinedload(Teacher.user))
+        .filter(Teacher.id == id)
+        .first()
+    )
     if not teacher:
         raise HTTPException(status_code=404, detail="Teacher not found")
-    return {**teacher.__dict__, "full_name": teacher.user.full_name}
+
+    try:
+        # Update user fields
+        if teacher_data.full_name is not None:
+            teacher.user.full_name = teacher_data.full_name
+        if teacher_data.loginid is not None:
+            # Check if new loginid is already taken
+            existing_user = (
+                db.query(User)
+                .filter(
+                    User.loginid == teacher_data.loginid, User.id != teacher.user.id
+                )
+                .first()
+            )
+            if existing_user:
+                raise HTTPException(
+                    status_code=400, detail="Email/username already exists"
+                )
+            teacher.user.loginid = teacher_data.loginid
+
+        db.commit()
+        db.refresh(teacher)
+
+        return {
+            "id": teacher.id,
+            "user_id": teacher.user_id,
+            "loginid": teacher.user.loginid,
+            "full_name": teacher.user.full_name,
+        }
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to update teacher")
+
 
 @teacher_router.delete("/{id}")
-async def delete_teacher(id: int, current_user: User = Depends(require_admin), db: Session = Depends(get_db)):
-    teacher = current_user.teacher
+async def delete_teacher(
+    id: int, current_user: User = Depends(require_admin), db: Session = Depends(get_db)
+):
+    teacher = (
+        db.query(Teacher).filter(Teacher.id == id).first()
+    )  # Fixed: use id parameter, not current_user
     if not teacher:
         raise HTTPException(status_code=404, detail="Teacher not found")
+
     user = db.query(User).filter(User.id == teacher.user_id).first()
     try:
         db.delete(teacher)
@@ -104,4 +234,44 @@ async def delete_teacher(id: int, current_user: User = Depends(require_admin), d
         return {"detail": "Teacher deleted successfully"}
     except SQLAlchemyError:
         db.rollback()
-        raise HTTPException(status_code=500, detail="Failed to delete teacher") 
+        raise HTTPException(status_code=500, detail="Failed to delete teacher")
+
+
+@teacher_router.get("/export/csv")
+async def export_teachers_csv(
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+    search: Optional[str] = Query(None, description="Search by name or email"),
+):
+    # Build query with same filters as get_teachers
+    query = db.query(Teacher).options(joinedload(Teacher.user))
+
+    if search:
+        query = query.filter(
+            (Teacher.user.has(User.loginid.ilike(f"%{search}%")))
+            | (Teacher.user.has(User.full_name.ilike(f"%{search}%")))
+        )
+
+    teachers = query.all()
+
+    # Create CSV in memory
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    # Write header
+    writer.writerow(["ID", "Full Name", "Email/Username"])
+
+    # Write data
+    for teacher in teachers:
+        writer.writerow([teacher.id, teacher.user.full_name, teacher.user.loginid])
+
+    output.seek(0)
+
+    # Create response
+    response = StreamingResponse(
+        io.StringIO(output.getvalue()),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=teachers_export.csv"},
+    )
+
+    return response

@@ -39,31 +39,43 @@ async def get_current_user(
         raise HTTPException(status_code=403, detail="Inactive user")
     return user
 
+
 def require_teacher(current_user: User = Depends(get_current_user)):
     if current_user.is_active == False:
         raise HTTPException(status_code=403, detail="Inactive user")
     if current_user.role != UserRole.TEACHER:
-        raise HTTPException(status_code=403, detail="Only teachers can perform this operation")
+        raise HTTPException(
+            status_code=403, detail="Only teachers can perform this operation"
+        )
     return current_user
+
 
 def require_admin(current_user: User = Depends(get_current_user)):
     if current_user.is_active == False:
         raise HTTPException(status_code=403, detail="Inactive user")
-    if current_user.role != UserRole.ADMIN or current_user.role != UserRole.SUPERUSER:
-        raise HTTPException(status_code=403, detail="Only admins can perform this operation")
+    if current_user.role != UserRole.ADMIN and current_user.role != UserRole.SUPERUSER:
+        raise HTTPException(
+            status_code=403, detail="Only admins can perform this operation"
+        )
     return current_user
 
+
 def require_student(current_user: User = Depends(get_current_user)):
-    
+
     if current_user.is_active == False:
         raise HTTPException(status_code=403, detail="Inactive user")
     if current_user.role != UserRole.STUDENT:
-        raise HTTPException(status_code=403, detail="Only students can perform this operation")
+        raise HTTPException(
+            status_code=403, detail="Only students can perform this operation"
+        )
     return current_user
-    
+
+
 def require_superuser(current_user: User = Depends(get_current_user)):
     if current_user.is_active == False:
         raise HTTPException(status_code=403, detail="Inactive user")
     if current_user.role != UserRole.SUPERUSER:
-        raise HTTPException(status_code=403, detail="Only super users can perform this operation")
+        raise HTTPException(
+            status_code=403, detail="Only super users can perform this operation"
+        )
     return current_user

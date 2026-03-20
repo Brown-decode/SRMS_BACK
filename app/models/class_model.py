@@ -4,15 +4,15 @@ from enum import Enum
 from sqlalchemy.orm import relationship
 
 
-class Cycle(Enum):
-    FIRST_CYCLE = "First Cycle"
-    SECOND_CYCLE = "Second Cycle"
+class Cycle(str, Enum):
+    FIRST_CYCLE = "First_Cycle"
+    SECOND_CYCLE = "Second_Cycle"
     
-class Stream(Enum):
-    ARTS = "Arts"
-    SCIENCE = "Science"
-    COMMERCIAL = "Commercial"
-    NONE = "None"
+class Stream(str, Enum):
+    ARTS = "ARTS"
+    SCIENCE = "SCIENCE"
+    COMMERCIAL = "COMMERCIAL"
+    NONE = "NONE"
 
 class Class(Base):
     __tablename__ = "classes"

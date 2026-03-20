@@ -7,7 +7,7 @@ from app.core.security import create_access_token
 from app.models.user import User, UserRole
 from app.schemas.user import AdminCreate, LoginResponse, UserResponse
 from fastapi.security import OAuth2PasswordRequestForm
-from app.core.dependencies import require_superuser
+from app.core.dependencies import require_superuser,require_admin, get_current_user
 from app.core.security import get_password_hash
 
 
@@ -28,6 +28,11 @@ async def login(
 
     return {"access_token": access_token, "token_type": "bearer"}
 
+@auth_router.get("/me", response_model=UserResponse)
+async def get_current_user_info(
+    current_user: User = Depends(get_current_user)
+):
+    return current_user
 
 @auth_router.get("/users", response_model=list[UserResponse])
 async def get_users(
@@ -62,3 +67,11 @@ async def create_admin(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+
+@auth_router.get("/me", response_model=UserResponse)
+async def get_current_user_info(
+    current_user: User = Depends(get_current_user)
+):
+    """Get current user info including role"""
+    return current_user

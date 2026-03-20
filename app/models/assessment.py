@@ -16,6 +16,7 @@ class Assessment(Base):
     sequence = Column(Integer, nullable=False)
     max_score = Column(Float, nullable=False)
     date = Column(Date, default= date.today, nullable=False)
+    weight_percentage = Column(Float, nullable=False)
     
     class_subject = relationship("ClassSubject", back_populates="assessments")
     scores = relationship("Score", back_populates="assessment", cascade="all, delete")

@@ -68,7 +68,7 @@ async def get_class_students(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Class not found."
             )
-        return _class.students
+        
     else:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -78,7 +78,17 @@ async def get_class_students(
     _class = db.query(Class).filter(Class.id == class_id).first()
     if not _class:
         raise HTTPException(status_code=404, detail="Class not found")
-    return _class.students
+    to_return = []
+    for student in _class.students:
+        to_return.append({"id": student.id,
+        "matricule": student.matricule,
+        "class_id": student.class_id,
+        "gender": student.gender,
+        "date_of_birth": student.date_of_birth,
+        "user_id": student.user_id,
+        "full_name": student.user.full_name})
+
+        return to_return
 
 
 @class_router.get("/{class_id}/results", response_model= list[StudentReportCard])

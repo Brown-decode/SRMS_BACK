@@ -1,10 +1,17 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from app.db.session import get_db
-from sqlalchemy.orm import Session
-from app.schemas.user import UserCreate
-from app.schemas.student import StudentCreate, StudentResponse, StudentReportCard
-from app.models.student import Student
-from app.models.user import User, UserRole
+from sqlalchemy.orm import Session, joinedload
+from app.models.user import User
+from app.models.student import Student, Gender
+from app.schemas.student import (
+    StudentResponse,
+    StudentCreate,
+    StudentUpdate,
+    StudentReportCard,
+)
+from app.core.dependencies import require_admin, require_student
+from datetime import datetime
+from typing import Optional, List
 from app.core.security import get_password_hash
 from fastapi import HTTPException, Depends
 from sqlalchemy.exc import SQLAlchemyError
@@ -14,6 +21,11 @@ from app.models.class_model import Class
 from app.core.dependencies import require_admin, require_student
 from app.services.result_service import compute_class_results
 from app.schemas.class_schema import ClassCreateResponse
+from sqlalchemy.orm import joinedload
+from typing import Optional
+from fastapi.responses import StreamingResponse
+import csv
+import io
 
 
 student_router = APIRouter(prefix="/students", tags=["student"])
@@ -66,23 +78,52 @@ async def create_student(
 
 @student_router.get("/", response_model=list[StudentResponse])
 async def get_all_students(
-    current_user: User = Depends(require_admin), db: Session = Depends(get_db)
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+    search: Optional[str] = Query(None, description="Search by name or matricule"),
+    class_id: Optional[int] = Query(None, description="Filter by class ID"),
+    gender: Optional[str] = Query(None, description="Filter by gender"),
+    page: int = Query(1, ge=1, description="Page number"),
+    limit: int = Query(25, ge=1, le=100, description="Items per page"),
 ):
-    students = db.query(Student).all()
+    # Build query with filters
+    query = db.query(Student).options(joinedload(Student.user))
+
+    if search:
+        query = query.filter(
+            (Student.matricule.ilike(f"%{search}%"))
+            | (Student.user.has(User.full_name.ilike(f"%{search}%")))
+        )
+
+    if class_id:
+        query = query.filter(Student.class_id == class_id)
+
+    if gender:
+        query = query.filter(Student.gender == gender)
+
+    # Get total count for pagination
+    total = query.count()
+
+    # Apply pagination
+    offset = (page - 1) * limit
+    students = query.offset(offset).limit(limit).all()
+
     to_return = []
     for student in students:
-        to_return.append({**student.__dict__, "full_name": student.user.full_name})
+        to_return.append(
+            {
+                "id": student.id,
+                "matricule": student.matricule,
+                "class_id": student.class_id,
+                "gender": student.gender,
+                "date_of_birth": student.date_of_birth,
+                "user_id": student.user_id,
+                "full_name": student.user.full_name,  # Fixed: use student's user, not current_user
+            }
+        )
+
+    # Return response with pagination metadata in headers
     return to_return
-
-
-@student_router.get("/{id}", response_model=StudentResponse)
-async def get_student_details(
-    id: int, current_user: User = Depends(require_admin), db: Session = Depends(get_db)
-):
-    student = db.query(Student).filter(Student.id == id).first()
-    if not student:
-        raise HTTPException(status_code=404, detail="Student not found")
-    return {**student.__dict__, "full_name": student.user.full_name}
 
 
 @student_router.get("/me", response_model=StudentResponse)
@@ -92,7 +133,33 @@ async def get_my_details(
     student = current_user.student
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
-    return {**student.__dict__, "full_name": student.user.full_name}
+    return {
+        "id": student.id,
+        "matricule": student.matricule,
+        "class_id": student.class_id,
+        "gender": student.gender,
+        "date_of_birth": student.date_of_birth,
+        "user_id": student.user_id,
+        "full_name": current_user.full_name,
+    }
+
+
+@student_router.get("/{id}", response_model=StudentResponse)
+async def get_student_details(
+    id: int, current_user: User = Depends(require_admin), db: Session = Depends(get_db)
+):
+    student = db.query(Student).filter(Student.id == id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+    return {
+        "id": student.id,
+        "matricule": student.matricule,
+        "class_id": student.class_id,
+        "gender": student.gender,
+        "date_of_birth": student.date_of_birth,
+        "user_id": student.user_id,
+        "full_name": student.user.full_name,
+    }
 
 
 @student_router.get("/me/class", response_model=ClassCreateResponse)
@@ -134,13 +201,62 @@ async def get_my_results(
     return student_report
 
 
+@student_router.put("/{id}", response_model=StudentResponse)
+async def update_student(
+    id: int,
+    student_data: StudentUpdate,
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    student = (
+        db.query(Student)
+        .options(joinedload(Student.user))
+        .filter(Student.id == id)
+        .first()
+    )
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    try:
+        # Update student fields
+        if student_data.class_id is not None:
+            student.class_id = student_data.class_id
+        if student_data.date_of_birth is not None:
+            student.date_of_birth = student_data.date_of_birth
+        if student_data.gender is not None:
+            student.gender = student_data.gender
+
+        # Update user fields
+        if student_data.full_name is not None:
+            student.user.full_name = student_data.full_name
+
+        db.commit()
+        db.refresh(student)
+
+        return {
+            "id": student.id,
+            "matricule": student.matricule,
+            "class_id": student.class_id,
+            "gender": student.gender,
+            "date_of_birth": student.date_of_birth,
+            "user_id": student.user_id,
+            "full_name": student.user.full_name,
+        }
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to update student")
+
+
 @student_router.delete("/{id}")
 async def delete_student(
     id: int, current_user: User = Depends(require_admin), db: Session = Depends(get_db)
 ):
-    student = current_user.student
+    student = (
+        db.query(Student).filter(Student.id == id).first()
+    )  # Fixed: use id parameter, not current_user
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
+
     user = db.query(User).filter(User.id == student.user_id).first()
     try:
         db.delete(student)
@@ -150,3 +266,66 @@ async def delete_student(
     except SQLAlchemyError:
         db.rollback()
         raise HTTPException(status_code=500, detail="Failed to delete student")
+
+
+@student_router.get("/export/csv")
+async def export_students_csv(
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+    search: Optional[str] = Query(None, description="Search by name or matricule"),
+    class_id: Optional[int] = Query(None, description="Filter by class ID"),
+    gender: Optional[str] = Query(None, description="Filter by gender"),
+):
+    # Build query with same filters as get_all_students
+    query = db.query(Student).options(joinedload(Student.user))
+
+    if search:
+        query = query.filter(
+            (Student.matricule.ilike(f"%{search}%"))
+            | (Student.user.has(User.full_name.ilike(f"%{search}%")))
+        )
+
+    if class_id:
+        query = query.filter(Student.class_id == class_id)
+
+    if gender:
+        query = query.filter(Student.gender == gender)
+
+    students = query.all()
+
+    # Create CSV in memory
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    # Write header
+    writer.writerow(
+        ["ID", "Matricule", "Full Name", "Gender", "Date of Birth", "Class ID"]
+    )
+
+    # Write data
+    for student in students:
+        writer.writerow(
+            [
+                student.id,
+                student.matricule,
+                student.user.full_name,
+                student.gender,
+                (
+                    student.date_of_birth.strftime("%Y-%m-%d")
+                    if student.date_of_birth
+                    else ""
+                ),
+                student.class_id or "",
+            ]
+        )
+
+    output.seek(0)
+
+    # Create response
+    response = StreamingResponse(
+        io.StringIO(output.getvalue()),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=students_export.csv"},
+    )
+
+    return response

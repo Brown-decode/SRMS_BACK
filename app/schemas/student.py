@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 from datetime import datetime
 from app.models.student import Gender
-from typing import List
+from typing import List, Optional
 
 
 class StudentCreate(BaseModel):
@@ -15,10 +15,20 @@ class StudentCreate(BaseModel):
         from_attributes = True
 
 
+class StudentUpdate(BaseModel):
+    full_name: Optional[str] = None
+    class_id: Optional[int] = None
+    date_of_birth: Optional[datetime] = None
+    gender: Optional[Gender] = None
+
+    class Config:
+        from_attributes = True
+
+
 class StudentResponse(StudentCreate):
     id: int
     user_id: int
-    
+
     class Config:
         from_attributes = True
 
