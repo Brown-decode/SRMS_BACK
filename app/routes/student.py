@@ -1,28 +1,23 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from app.db.session import get_db
 from sqlalchemy.orm import Session, joinedload
-from app.models.user import User
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import Boolean
+from app.models.user import User, UserRole
 from app.models.student import Student, Gender
+from app.models.class_model import Class
 from app.schemas.student import (
     StudentResponse,
     StudentCreate,
     StudentUpdate,
     StudentReportCard,
 )
-from app.core.dependencies import require_admin, require_student
-from datetime import datetime
-from typing import Optional, List
-from app.core.security import get_password_hash
-from fastapi import HTTPException, Depends
-from sqlalchemy.exc import SQLAlchemyError
-from app.core.dependencies import get_current_user
-from app.models.class_subject import ClassSubject
-from app.models.class_model import Class
-from app.core.dependencies import require_admin, require_student
+from app.core.dependencies import require_admin, require_student, get_current_user
+from app.db.session import get_db
 from app.services.result_service import compute_class_results
 from app.schemas.class_schema import ClassCreateResponse
-from sqlalchemy.orm import joinedload
-from typing import Optional
+from app.core.security import get_password_hash
+from datetime import datetime
+from typing import Optional, List
 from fastapi.responses import StreamingResponse
 import csv
 import io
@@ -175,15 +170,56 @@ async def get_my_class(
     return _class
 
 
-@student_router.get("/me/results", response_model=StudentReportCard)
+@student_router.get("/debug/class-info")
+async def debug_class_info(
+    current_user: User = Depends(require_student),
+    db: Session = Depends(get_db),
+):
+    """Debug endpoint to check student class information"""
+    student = current_user.student
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    debug_info = {
+        "student_id": student.id,
+        "student_matricule": student.matricule,
+        "student_class_id": student.class_id,
+        "student_class_id_is_null": student.class_id is None,
+    }
+
+    if student.class_id:
+        # Check if class exists
+        class_info = db.query(Class).filter(Class.id == student.class_id).first()
+        debug_info["class_exists"] = class_info is not None
+        if class_info:
+            debug_info["class_name"] = class_info.name
+            debug_info["class_level"] = class_info.level
+            debug_info["class_stream"] = class_info.stream
+
+        # Count students in class
+        student_count = (
+            db.query(Student).filter(Student.class_id == student.class_id).count()
+        )
+        debug_info["students_in_class"] = student_count
+    else:
+        debug_info["error"] = "Student has no class_id assigned"
+
+    return debug_info
+
+
+@student_router.get("/me/results")
 async def get_my_results(
     term: int,
     current_user: User = Depends(require_student),
     db: Session = Depends(get_db),
 ):
+
     student = current_user.student
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
+
+    print(
+    )
 
     # We need to find the rank, so we compute all results first
     all_results = compute_class_results(db, student.class_id, term)
@@ -197,6 +233,35 @@ async def get_my_results(
         raise HTTPException(
             status_code=404, detail=f"No results found for you in term {term}."
         )
+
+
+    # ENHANCEMENT: Add optional class information without breaking schema
+    try:
+
+        # Get class information
+        class_info = db.query(Class).filter(Class.id == student.class_id).first()
+
+        # Get total students in class
+        total_students = (
+            db.query(Student).filter(Student.class_id == student.class_id).count()
+        )
+
+        # Add optional fields to the response (won't break existing consumers)
+        student_report["class_name"] = class_info.name if class_info else "Unknown"
+        student_report["class_size"] = total_students
+        student_report["total_students"] = total_students  # For consistency with PDF
+
+
+    except Exception as e:
+        # If enhancement fails, log but don't break the response
+        print(f"ERROR: Failed to enhance student results with class info: {e}")
+        import traceback
+
+        traceback.print_exc()
+        # Set fallback values
+        student_report["class_name"] = "Unknown"
+        student_report["class_size"] = 0
+        student_report["total_students"] = 0
 
     return student_report
 

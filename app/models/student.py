@@ -12,7 +12,7 @@ class Student(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False)
     matricule = Column(String, unique=True, index=True, nullable=False)
-    class_id = Column(Integer, ForeignKey("classes.id", ondelete="CASCADE"), nullable=True)
+    class_id = Column(Integer, ForeignKey("classes.id", ondelete="CASCADE"), nullable=False)
     date_of_birth = Column(Date, nullable=True)
     gender = Column(SqlAlchemyEnum(Gender), nullable=False)
     

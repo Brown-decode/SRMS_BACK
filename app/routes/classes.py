@@ -13,7 +13,7 @@ from app.schemas.student import StudentResponse, StudentReportCard
 class_router = APIRouter(prefix="/classes", tags=["class"])
 
 
-@class_router.post("/", status_code=201, response_model= ClassCreateResponse)
+@class_router.post("/", status_code=201, response_model=ClassCreateResponse)
 async def create_class(
     class_: ClassCreateRequest,
     current_user: User = Depends(require_admin),
@@ -33,7 +33,7 @@ async def create_class(
         raise HTTPException(status_code=500, detail="Failed to create class")
 
 
-@class_router.get("/", response_model= list[ClassCreateResponse])
+@class_router.get("/", response_model=list[ClassCreateResponse])
 async def get_classes(
     current_user: User = Depends(require_admin), db: Session = Depends(get_db)
 ):
@@ -41,7 +41,7 @@ async def get_classes(
     return classes
 
 
-@class_router.get("/{class_id}/students", response_model= list[StudentResponse])
+@class_router.get("/{class_id}/students", response_model=list[StudentResponse])
 async def get_class_students(
     class_id: int,
     current_user: User = Depends(get_current_user),
@@ -68,7 +68,7 @@ async def get_class_students(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Class not found."
             )
-        
+
     else:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -80,18 +80,22 @@ async def get_class_students(
         raise HTTPException(status_code=404, detail="Class not found")
     to_return = []
     for student in _class.students:
-        to_return.append({"id": student.id,
-        "matricule": student.matricule,
-        "class_id": student.class_id,
-        "gender": student.gender,
-        "date_of_birth": student.date_of_birth,
-        "user_id": student.user_id,
-        "full_name": student.user.full_name})
+        to_return.append(
+            {
+                "id": student.id,
+                "matricule": student.matricule,
+                "class_id": student.class_id,
+                "gender": student.gender,
+                "date_of_birth": student.date_of_birth,
+                "user_id": student.user_id,
+                "full_name": student.user.full_name,
+            }
+        )
 
-        return to_return
+    return to_return
 
 
-@class_router.get("/{class_id}/results", response_model= list[StudentReportCard])
+@class_router.get("/{class_id}/results", response_model=list[StudentReportCard])
 async def get_class_results(
     class_id: int,
     term: int,

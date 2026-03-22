@@ -204,24 +204,6 @@ async def create_scores(
         # Extract student ids from request
         student_ids = [item.student_id for item in payload.scores]
 
-        # Check students already graded in this assessment
-        existing_scores = (
-            db.query(Score.student_id)
-            .filter(
-                Score.assessment_id == assessment_id,
-                Score.student_id.in_(student_ids),
-            )
-            .all()
-        )
-
-        existing_student_ids = {row[0] for row in existing_scores}
-
-        if existing_student_ids:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Scores already exist for students: {list(existing_student_ids)}",
-            )
-
         # Validate students belong to the same class
         valid_students = (
             db.query(Student.id)
@@ -242,28 +224,196 @@ async def create_scores(
                 detail=f"Students not in this class: {list(invalid_students)}",
             )
 
-        # Create score objects
-        scores_to_create = [
-            Score(
-                student_id=item.student_id,
-                assessment_id=assessment_id,
-                score=item.score,
-            )
-            for item in payload.scores
-        ]
+        # Process each score - update existing or create new
+        updated_count = 0
+        created_count = 0
+        scores_to_create = []
 
-        # Bulk insert
-        db.add_all(scores_to_create)
+        for item in payload.scores:
+            # Find existing score
+            existing_score = (
+                db.query(Score)
+                .filter(
+                    Score.assessment_id == assessment_id,
+                    Score.student_id == item.student_id,
+                )
+                .first()
+            )
+
+            if existing_score:
+                # Update existing score
+                existing_score.score = item.score
+                updated_count += 1
+            else:
+                # Create new score
+                scores_to_create.append(
+                    Score(
+                        student_id=item.student_id,
+                        assessment_id=assessment_id,
+                        score=item.score,
+                    )
+                )
+                created_count += 1
+
+        # Bulk insert new scores
+        if scores_to_create:
+            db.add_all(scores_to_create)
+
         db.commit()
+
+        return {
+            "message": f"Scores processed successfully: {updated_count} updated, {created_count} created",
+            "count": len(payload.scores),
+        }
 
     except SQLAlchemyError:
         db.rollback()
         raise HTTPException(status_code=500, detail="Failed to record scores")
 
-    return {
-        "message": "Scores recorded successfully",
-        "count": len(scores_to_create),
-    }
+
+@assessment_router.put("/{assessment_id}/scores/{student_id}")
+async def update_score(
+    assessment_id: int,
+    student_id: int,
+    score_data: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_teacher),
+):
+    teacher = current_user.teacher
+
+    # Verify teacher owns the assessment
+    assessment = (
+        db.query(Assessment)
+        .join(ClassSubject)
+        .join(Teacher)
+        .filter(
+            Assessment.id == assessment_id,
+            Teacher.id == teacher.id,
+        )
+        .first()
+    )
+
+    if not assessment:
+        raise HTTPException(status_code=404, detail="Assessment not found")
+
+    # Validate student belongs to the class
+    student = (
+        db.query(Student)
+        .filter(
+            Student.id == student_id,
+            Student.class_id == assessment.class_subject.class_id,
+        )
+        .first()
+    )
+
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found in this class")
+
+    # Validate score
+    score = score_data.get("score")
+    if score is None or not isinstance(score, (int, float)):
+        raise HTTPException(status_code=400, detail="Invalid score value")
+
+    if score < 0 or score > assessment.max_score:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Score must be between 0 and {assessment.max_score}",
+        )
+
+    # Find existing score or create new one
+    existing_score = (
+        db.query(Score)
+        .filter(Score.assessment_id == assessment_id, Score.student_id == student_id)
+        .first()
+    )
+
+    try:
+        if existing_score:
+            existing_score.score = score
+        else:
+            new_score = Score(
+                assessment_id=assessment_id, student_id=student_id, score=score
+            )
+            db.add(new_score)
+
+        db.commit()
+
+        return {
+            "message": "Score updated successfully",
+            "student_id": student_id,
+            "assessment_id": assessment_id,
+            "score": score,
+        }
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to update score")
+
+
+@assessment_router.get("/{assessment_id}/scores/export")
+async def export_assessment_scores(
+    assessment_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_teacher),
+):
+    import io
+    import csv
+    from fastapi.responses import StreamingResponse
+
+    teacher = current_user.teacher
+
+    # Verify teacher owns the assessment
+    assessment = (
+        db.query(Assessment)
+        .join(ClassSubject)
+        .join(Teacher)
+        .filter(
+            Assessment.id == assessment_id,
+            Teacher.id == teacher.id,
+        )
+        .first()
+    )
+
+    if not assessment:
+        raise HTTPException(status_code=404, detail="Assessment not found")
+
+    # Get students in the class
+    students = (
+        db.query(Student)
+        .filter(Student.class_id == assessment.class_subject.class_id)
+        .all()
+    )
+
+    # Get existing scores for the assessment
+    scores = db.query(Score).filter(Score.assessment_id == assessment_id).all()
+
+    # Map student_id -> score
+    score_map = {score.student_id: score.score for score in scores}
+
+    # Create CSV in memory
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    # Write header
+    writer.writerow(["Student Name", "Score", "Max Score", "Status"])
+
+    # Write data
+    for student in students:
+        score = score_map.get(student.id)
+        status = "Scored" if score is not None else "Not Scored"
+        score_value = score if score is not None else "N/A"
+
+        writer.writerow(
+            [student.user.full_name, score_value, assessment.max_score, status]
+        )
+
+    # Create response
+    output.seek(0)
+
+    return StreamingResponse(
+        io.BytesIO(output.getvalue().encode("utf-8")),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=assessment_scores.csv"},
+    )
 
 
 @assessment_router.get("/{assessment_id}/scores")

@@ -25,6 +25,16 @@ class StudentUpdate(BaseModel):
         from_attributes = True
 
 
+class StudentUpdate(BaseModel):
+    full_name: Optional[str] = None
+    class_id: Optional[int] = None
+    date_of_birth: Optional[datetime] = None
+    gender: Optional[Gender] = None
+
+    class Config:
+        from_attributes = True
+
+
 class StudentResponse(StudentCreate):
     id: int
     user_id: int

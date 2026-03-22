@@ -5,79 +5,72 @@ from sqlalchemy.orm import Session
 from passlib.context import CryptContext
 
 from app.db.session import SessionLocal
-from app.models.user import User
-from app.models.student import Student
-from app.models.class_model import Class
+from app.models.user import User, UserRole
+from app.models.student import Student, Gender
+from app.models.class_model import Class, Cycle, Stream
 from app.models.subject import Subject
 from app.models.score import Score
 from app.models.assessment import Assessment
 from app.models.class_subject import ClassSubject
 from app.models.teacher import Teacher
-from app.models.user import UserRole
-from app.models.class_model import Cycle, Stream
-from app.models.student import Gender
 
-# 1. SETUP PASSWORD HASHING
+# 1. SETUP
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 COMMON_PASSWORD = "password123"
 HASHED_PASSWORD = pwd_context.hash(COMMON_PASSWORD)
-
 fake = Faker()
-
 
 def seed():
     db: Session = SessionLocal()
-
     try:
-        print("Cleaning database...")
-        for model in [
-            Score,
-            Assessment,
-            ClassSubject,
-            Student,
-            Teacher,
-            Subject,
-            Class,
-            User,
-        ]:
+        print("🔥 Purging Database...")
+        # Order matters for deletion due to Foreign Key constraints
+        for model in [Score, Assessment, ClassSubject, Student, Teacher, Subject, Class, User]:
             db.query(model).delete()
         db.commit()
 
-        # 1. SEED ADMINS
-        print("Seeding admins...")
-        admin = User(
-            full_name="System Admin",
-            loginid="admin",
-            password_hash=HASHED_PASSWORD,
-            role=UserRole.ADMIN,
-        )
-        db.add(admin)
+        # 1. ADMINS
+        db.add(User(full_name="System Admin", loginid="admin", password_hash=HASHED_PASSWORD, role=UserRole.ADMIN))
         db.flush()
 
-        # 2. SEED CLASSES
-        print("Seeding classes...")
+        # 2. SUBJECTS
+        print("📚 Seeding Subjects...")
+        subject_names = ["Maths", "English", "French", "History", "Physics", "Chemistry", "Biology", "ICT", "Geography", "Literature"]
+        subjects = [Subject(name=n) for n in subject_names]
+        db.add_all(subjects)
+        db.flush()
+
+        # 3. CLASSES (Fixed: Ensures Unique Names)
+        print("🏫 Seeding Unique Randomized Classes...")
         classes = []
-        for i in range(1, 6):
+        # Create a list of all possible valid Form/Section combos
+        potential_combos = [
+            (f"Form {f} {s}", f) 
+            for f in range(1, 6) 
+            for s in ['A', 'B', 'C']
+        ] + [
+            (f"Lower Sixth {s}", 6) for s in ['Science', 'Arts']
+        ] + [
+            (f"Upper Sixth {s}", 7) for s in ['Science', 'Arts']
+        ]
+        
+        # Pick 10 unique classes from the list
+        selected_configs = random.sample(potential_combos, 10)
+
+        for name, form_level in selected_configs:
             c = Class(
-                name=f"Class {i}",
-                level=random.choice(list(Cycle)),
+                name=name,
+                level=Cycle.FIRST_CYCLE if form_level <= 5 else Cycle.SECOND_CYCLE,
                 stream=random.choice(list(Stream)),
             )
             db.add(c)
             classes.append(c)
         db.flush()
 
-        # 3. SEED SUBJECTS
-        print("Seeding subjects...")
-        subject_names = ["Maths", "English", "French", "History", "Physics"]
-        subjects = [Subject(name=n) for n in subject_names]
-        db.add_all(subjects)
-        db.flush()
-
-        # 4. SEED TEACHERS
-        print("Seeding and assigning teachers...")
+        # 4. TEACHERS with Subject Specialties
+        print("👨‍🏫 Seeding Overloaded Teachers...")
         teachers = []
-        for i in range(5):
+        for i in range(8):
             u = User(
                 full_name=fake.name(),
                 loginid=f"teacher{i+1}",
@@ -87,102 +80,105 @@ def seed():
             db.add(u)
             db.flush()
             t = Teacher(user_id=u.id)
+            # Assign each teacher 1-3 random subjects they "specialize" in
+            teacher_specs = random.sample(subjects, random.randint(1, 3))
+            # We don't store specialties in DB usually, just use them for seeding logic below
+            t._seed_specs = teacher_specs 
             db.add(t)
             teachers.append(t)
         db.flush()
 
-        # 5. LINK CLASSES TO SUBJECTS (Ensuring every teacher has work)
+        # 5. LINK CLASSES TO SUBJECTS
+        print("🔗 Mapping Class-Subjects...")
         cs_list = []
         for c in classes:
-            # Assign all subjects to each class, rotating through our teachers
-            for idx, s in enumerate(subjects):
+            # Each class gets 5 to 8 subjects
+            num_subs = random.randint(5, 8)
+            assigned_subjects = random.sample(subjects, num_subs)
+            for s in assigned_subjects:
+                # Find teachers who 'specialize' in this subject
+                eligible = [t for t in teachers if s in t._seed_specs]
+                assigned_teacher = random.choice(eligible if eligible else teachers)
+                
                 cs = ClassSubject(
                     class_id=c.id,
                     subject_id=s.id,
-                    teacher_id=teachers[idx % len(teachers)].id,  # Rotates 0,1,2,3,4
+                    teacher_id=assigned_teacher.id,
                     coefficient=random.randint(1, 5),
                 )
                 db.add(cs)
                 cs_list.append(cs)
         db.flush()
 
-        # 6. SEED STUDENTS (Nested inside classes to ensure assignment)
-        print("Seeding assigned students...")
+        # 6. STUDENTS (Variable Class Sizes)
+        print("🎒 Seeding Variable Student Enrollment...")
         all_students = []
-        for c in classes:
-            for i in range(10):  # 10 students per class
+        for idx, c in enumerate(classes):
+            num_students = random.randint(10, 40) # Randomize size
+            for i in range(num_students):
                 u = User(
                     full_name=fake.name(),
-                    loginid=f"std_{c.name.replace(' ', '')}_{i}",
+                    loginid=f"std_{idx}_{i}_{random.randint(100,999)}",
                     password_hash=HASHED_PASSWORD,
                     role=UserRole.STUDENT,
                 )
                 db.add(u)
                 db.flush()
-
                 s = Student(
                     user_id=u.id,
-                    matricule=f"MAT-{c.id}-{i}-{random.randint(100, 999)}",
-                    class_id=c.id,  # Explicitly linked to current class
+                    matricule=f"MAT-{date.today().year}-{c.id}-{i:02d}{random.randint(10,99)}",
+                    class_id=c.id,
                     gender=random.choice(list(Gender)),
-                    date_of_birth=date(2010, 1, 1),
+                    date_of_birth=date(2008, random.randint(1,12), random.randint(1,28)),
                 )
                 db.add(s)
                 all_students.append(s)
         db.flush()
-        # 7 & 8. SEED ASSESSMENTS & SCORES
-        print("Seeding assessments and scores...")
+
+        # 7. ASSESSMENTS & SCORES (Multi-Term)
+        print("📊 Seeding Scores (Term 1 & 2)...")
         for cs in cs_list:
-            sequence_setup = [{"num": 1, "weight": 0.50}, {"num": 2, "weight": 0.50}]
+            for term_val in [1, 2]: # Seed two terms to test trends
+                for seq_num in [1, 2]:
+                    a = Assessment(
+                        title=f"T{term_val} Seq {seq_num}",
+                        class_subject_id=cs.id,
+                        term=term_val,
+                        sequence=seq_num,
+                        max_score=20.0,
+                        weight_percentage=0.50,
+                    )
+                    db.add(a)
+                    db.flush()
 
-            for item in sequence_setup:
-                # Create the Assessment
-                a = Assessment(
-                    title=f"Sequence {item['num']}",
-                    class_subject_id=cs.id,
-                    term=1,
-                    sequence=item["num"],
-                    max_score=20.0,
-                    weight_percentage=item["weight"],
-                )
-                db.add(a)
-                db.flush()  # Flush here so 'a.id' exists for the scores
-
-                # YOUR CODE BLOCK: Assign scores to students for this assessment
-                class_students = [s for s in all_students if s.class_id == cs.class_id]
-                for s in class_students:
-                    # Define a more realistic score distribution
-                    dice_roll = random.random()
-                    if dice_roll > 0.90:  # 10% chance for "Excellent" students
-                        score_val = random.uniform(16, 20)
-                    elif dice_roll > 0.40:  # 50% chance for "Average/Good" students
-                        score_val = random.uniform(11, 15.9)
-                    elif dice_roll > 0.15:  # 25% chance for "Passing/Borderline"
-                        score_val = random.uniform(10, 10.9)
-                    else:  # 15% chance for "Failing" students
-                        score_val = random.uniform(4, 9.9)
-                    db.add(
-                        Score(
+                    class_students = [s for s in all_students if s.class_id == cs.class_id]
+                    for s in class_students:
+                        # 5% chance student was absent
+                        if random.random() < 0.05:
+                            continue
+                            
+                        # Realistic score distribution
+                        roll = random.random()
+                        if roll > 0.90: score_val = random.uniform(15, 20)
+                        elif roll > 0.40: score_val = random.uniform(10, 14.9)
+                        else: score_val = random.uniform(3, 9.9)
+                        
+                        db.add(Score(
                             student_id=s.id,
                             assessment_id=a.id,
                             score=round(score_val, 2),
-                        )
-                    )
-        db.flush()
-
+                        ))
+        
         db.commit()
-        print("-" * 30)
-        print("DATABASE SEEDED SUCCESSFULLY!")
-        print(f"Admin Login: admin / {COMMON_PASSWORD}")
-        print("-" * 30)
+        print("\n✅ DATABASE SEEDED SUCCESSFULLY!")
+        print(f"Generated {len(all_students)} students across {len(classes)} classes.")
 
     except Exception as e:
         db.rollback()
-        print(f"Error seeding database: {e}")
+        print(f"❌ Error: {e}")
         raise e
     finally:
         db.close()
-
 
 if __name__ == "__main__":
     seed()

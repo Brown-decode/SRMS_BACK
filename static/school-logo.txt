@@ -1,0 +1,4 @@
+# School Logo Placeholder
+# This is a placeholder for the school logo
+# In a real implementation, this would be an actual image file
+# For now, the PDF generation will use this as a text placeholder

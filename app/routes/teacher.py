@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi.responses import StreamingResponse
 from app.db.session import get_db
 from sqlalchemy.orm import Session
 from app.models.teacher import Teacher
@@ -8,17 +9,17 @@ from app.models.user import User, UserRole
 from app.core.security import get_password_hash
 from fastapi import HTTPException, Depends
 from app.core.dependencies import get_current_user, require_teacher, require_admin
-from app.models.user import User
 from app.models.class_subject import ClassSubject
 from app.schemas.subject import SubjectCreateResponse
 from app.models.student import Student
 from app.models.class_model import Class
+from app.models.subject import Subject
+
+import io
+import csv
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import joinedload
 from typing import Optional
-from fastapi.responses import StreamingResponse
-import csv
-import io
 
 teacher_router = APIRouter(prefix="/teachers", tags=["teacher"])
 
@@ -167,6 +168,29 @@ async def get_my_subjects(
     return subjects
 
 
+@teacher_router.get("/me/class-subjects")
+async def get_my_class_subjects(
+    current_user: User = Depends(require_teacher), db: Session = Depends(get_db)
+):
+    teacher = current_user.teacher
+    class_subjects = []
+
+    for cs in teacher.class_subjects:
+        class_subjects.append(
+            {
+                "id": cs.id,
+                "class_id": cs.class_id,
+                "subject_id": cs.subject_id,
+                "subject_name": cs.subject.name,
+                "class_name": cs.class_.name if cs.class_ else f"Class {cs.class_id}",
+                "coefficient": cs.coefficient,
+            }
+        )
+
+    # Return empty array instead of 404 when no subjects assigned
+    return class_subjects
+
+
 @teacher_router.put("/{id}", response_model=TeacherResponse)
 async def update_teacher(
     id: int,
@@ -235,6 +259,74 @@ async def delete_teacher(
     except SQLAlchemyError:
         db.rollback()
         raise HTTPException(status_code=500, detail="Failed to delete teacher")
+
+
+@teacher_router.get("/me/export/csv")
+async def export_my_classes_csv(
+    current_user: User = Depends(require_teacher),
+    db: Session = Depends(get_db),
+):
+    # Get teacher's class subjects - same data as the table
+    teacher = db.query(Teacher).filter(Teacher.user_id == current_user.id).first()
+
+    if not teacher:
+        raise HTTPException(status_code=404, detail="Teacher not found")
+
+    # Get class subjects with basic info
+    class_subjects = []
+    for cs in teacher.class_subjects:
+        # Get class name
+        class_obj = db.query(Class).filter(Class.id == cs.class_id).first()
+        class_name = class_obj.name if class_obj else f"Class {cs.class_id}"
+
+        # Get subject name
+        subject_obj = db.query(Subject).filter(Subject.id == cs.subject_id).first()
+        subject_name = subject_obj.name if subject_obj else f"Subject {cs.subject_id}"
+
+        # Get student count
+        students = db.query(Student).filter(Student.class_id == cs.class_id).all()
+
+        class_subjects.append(
+            {
+                "class_id": cs.class_id,
+                "class_name": class_name,
+                "subject_id": cs.subject_id,
+                "subject_name": subject_name,
+                "coefficient": cs.coefficient or 0,
+                "student_count": len(students),
+                "class_average": 0,  # Will be computed in frontend
+            }
+        )
+
+    # Create CSV in memory
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    # Write header - same as table columns
+    writer.writerow(
+        ["Class Name", "Subject", "Coefficient", "Students", "Class Average"]
+    )
+
+    # Write data
+    for cs in class_subjects:
+        writer.writerow(
+            [
+                cs.get("class_name", ""),
+                cs.get("subject_name", ""),
+                cs.get("coefficient", 0),
+                cs.get("student_count", 0),
+                "N/A",  # Class average computed in frontend
+            ]
+        )
+
+    # Create response
+    output.seek(0)
+
+    return StreamingResponse(
+        io.BytesIO(output.getvalue().encode("utf-8")),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=my_classes.csv"},
+    )
 
 
 @teacher_router.get("/export/csv")
