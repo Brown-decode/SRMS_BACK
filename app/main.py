@@ -8,6 +8,7 @@ from app.routes.subject import subject_router
 from app.routes.teacher import teacher_router
 from app.routes.results import result_router
 from app.routes.results_pdf import results_pdf_router
+from app.routes.class_performance import class_performance_router
 from app.db.database import engine, Base
 from app import models
 from fastapi.middleware.cors import CORSMiddleware
@@ -41,6 +42,8 @@ app.include_router(subject_router)
 app.include_router(teacher_router)
 app.include_router(results_pdf_router)
 app.include_router(result_router)
+app.include_router(class_performance_router)
+
 
 @app.get("/")
 async def root():

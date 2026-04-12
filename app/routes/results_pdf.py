@@ -7,11 +7,17 @@ from app.services.result_service import compute_class_results
 from fastapi.responses import StreamingResponse
 import io
 from reportlab.lib.pagesizes import letter, A4
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.platypus import (
+    SimpleDocTemplate,
+    Table,
+    TableStyle,
+    Paragraph,
+    Spacer,
+    Image,
+)
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.lib import colors
-from reportlab.pdfgen import canvas
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 import datetime
 
@@ -19,12 +25,11 @@ results_pdf_router = APIRouter(prefix="/students", tags=["student"])
 
 # Mock school header data
 SCHOOL_HEADER = {
-    "name": "Government Secondary School, Buea",
+    "name": "Government Bilingual High School Bepanda",
     "motto": "Peace-Work-Fatherland",
-    "address": "P.O. Box 123, Buea, Cameroon",
+    "address": "P.O BOX/B.P 24039, Douala, Cameroon",
     "phone": "+237 233 123 456",
     "email": "info@govsec-buea.cm",
-    "website": "www.govsec-buea.cm",
 }
 
 
@@ -79,6 +84,22 @@ def generate_results_pdf(school_header, student_data, term):
     normal_style = ParagraphStyle(
         "Normal", parent=styles["Normal"], fontSize=10, spaceAfter=6
     )
+
+    # Add GBHS Logo at the top with better visibility
+    logo_elements = []
+
+    # Create a more prominent logo with better styling
+    logo_elements.append(Spacer(1, 20))
+    logo_elements.append(Paragraph("GBHS", title_style))
+    logo_elements.append(Spacer(1, 5))
+    logo_elements.append(
+        Paragraph("GOVERNMENT BILINGUAL HIGH SCHOOL BEPANDA", header_style)
+    )
+    logo_elements.append(Spacer(1, 5))
+    logo_elements.append(Paragraph("Peace-Work-Fatherland", header_style))
+    logo_elements.append(Spacer(1, 30))
+
+    elements.extend(logo_elements)
 
     # School Header
     elements.append(Paragraph(school_header["name"], title_style))

@@ -101,7 +101,7 @@ async def get_all_students(
 
     # Apply pagination
     offset = (page - 1) * limit
-    students = query.offset(offset).limit(limit).all()
+    students = query
 
     to_return = []
     for student in students:
@@ -156,6 +156,14 @@ async def get_student_details(
         "full_name": student.user.full_name,
     }
 
+@student_router.put("/")
+async def change_password(new_password:str, current_user: User = Depends(require_student), db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == current_user.id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.password_hash = get_password_hash(new_password)
+    db.commit()
+    return {"detail": "Password changed successfully"}
 
 @student_router.get("/me/class", response_model=ClassCreateResponse)
 async def get_my_class(

@@ -1,0 +1,33 @@
+@startuml
+
+package "Frontend (React)" {
+  [UI Components]
+  [Auth Hook]
+  [Socket Hook]
+}
+
+package "Backend (FastAPI)" {
+  [Auth Routes]
+  [Message Routes]
+  [Conversation Routes]
+}
+
+package "Realtime" {
+  [Socket.IO Server]
+}
+
+database "Database" {
+  [PostgreSQL]
+}
+
+[UI Components] --> [Auth Routes]
+[UI Components] --> [Message Routes]
+
+[Socket Hook] --> [Socket.IO Server]
+
+[Auth Routes] --> [PostgreSQL]
+[Message Routes] --> [PostgreSQL]
+
+[Socket.IO Server] --> [PostgreSQL]
+
+@enduml
