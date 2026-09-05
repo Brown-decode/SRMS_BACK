@@ -29,7 +29,7 @@ SCHOOL_HEADER = {
     "motto": "Peace-Work-Fatherland",
     "address": "P.O BOX/B.P 24039, Douala, Cameroon",
     "phone": "+237 233 123 456",
-    "email": "info@govsec-buea.cm",
+    "email": "info@govsec-Douala.cm",
 }
 
 
@@ -67,10 +67,21 @@ def generate_results_pdf(school_header, student_data, term):
     title_style = ParagraphStyle(
         "CustomTitle",
         parent=styles["Heading1"],
-        fontSize=18,
+        fontSize=24,
         spaceAfter=30,
         alignment=TA_CENTER,
         textColor=colors.darkblue,
+    )
+
+    # Logo style for GBHS
+    logo_style = ParagraphStyle(
+        "Logo",
+        parent=styles["Heading1"],
+        fontSize=32,
+        spaceAfter=15,
+        alignment=TA_CENTER,
+        textColor=colors.darkblue,
+        fontName="Helvetica-Bold",
     )
 
     header_style = ParagraphStyle(
@@ -85,19 +96,27 @@ def generate_results_pdf(school_header, student_data, term):
         "Normal", parent=styles["Normal"], fontSize=10, spaceAfter=6
     )
 
-    # Add GBHS Logo at the top with better visibility
+    # Add GBHS Logo using image from login page
     logo_elements = []
 
-    # Create a more prominent logo with better styling
-    logo_elements.append(Spacer(1, 20))
-    logo_elements.append(Paragraph("GBHS", title_style))
-    logo_elements.append(Spacer(1, 5))
-    logo_elements.append(
-        Paragraph("GOVERNMENT BILINGUAL HIGH SCHOOL BEPANDA", header_style)
-    )
-    logo_elements.append(Spacer(1, 5))
-    logo_elements.append(Paragraph("Peace-Work-Fatherland", header_style))
-    logo_elements.append(Spacer(1, 30))
+    # Add logo image instead of text
+    try:
+        from reportlab.platypus import Image as RLImage
+
+        logo_path = "app/routes/gbhs_bepanda.jpg"
+        logo_elements.append(Spacer(1, 25))
+        logo_elements.append(RLImage(logo_path, width=80, height=80))
+        logo_elements.append(Spacer(1, 15))
+    except:
+        # Fallback to text if image not found
+        logo_elements.append(Spacer(1, 25))
+        logo_elements.append(Paragraph("GBHS", logo_style))
+        logo_elements.append(Spacer(1, 15))
+
+    logo_elements.append(Paragraph(school_header["name"], title_style))
+    logo_elements.append(Spacer(1, 8))
+    logo_elements.append(Paragraph(school_header["motto"], header_style))
+    logo_elements.append(Spacer(1, 35))
 
     elements.extend(logo_elements)
 
